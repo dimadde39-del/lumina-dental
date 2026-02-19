@@ -742,7 +742,7 @@
 
             async function loadData() {
                 // === FIX: safe fallback if DEFAULT_SITE_DATA is still missing ===
-                const baseFallback = window.DEFAULT_SITE_DATA || { services: [], cases: [], doctors: [], testimonials: [], prices: [], trustBadges: [], why: [], quiz: [], contacts: {} };
+                const baseFallback = window.DEFAULT_SITE_DATA || { services: [], cases: [], doctors: [], testimonials: [], prices: [], trustBadges: [], why: [], quiz: { steps: [], finalBonusText: "" }, contacts: {} };
                 try {
                     const { data, error } = await supa.from("site_settings").select("data").eq("id", "lumina").single();
                     if (!error && data && data.data && Object.keys(data.data).length > 0) {
@@ -767,7 +767,16 @@
             function buildSections() {
                 const main = $("#admin-main");
                 main.innerHTML = SECTIONS.map(s => `<div class="admin-section" id="sec-${s.id}"></div>`).join("");
-                SECTIONS.forEach(s => s.render());
+                // === FIX: try/catch each section so one crash doesn't kill the rest ===
+                SECTIONS.forEach(s => {
+                    try {
+                        s.render();
+                    } catch (err) {
+                        console.warn(`[ADMIN FIX] Section "${s.id}" render failed:`, err.message);
+                        const el = $(`#sec-${s.id}`);
+                        if (el) el.innerHTML = `<h2 class="admin-section__title">${s.label}</h2><p class="admin-section__helper" style="color:#f87171">⚠ Ошибка рендера: ${err.message}. Данные для этого раздела отсутствуют или повреждены.</p>`;
+                    }
+                });
             }
 
             function switchSection(id) {
@@ -910,13 +919,16 @@
             function renderQuizSection() {
                 const el = $("#sec-quiz");
                 function draw() {
-                    const quiz = DATA.quiz || { steps: [], finalBonusText: "" };
+                    // === FIX: triple-guard quiz and quiz.steps ===
+                    if (!DATA.quiz || typeof DATA.quiz !== 'object' || Array.isArray(DATA.quiz)) DATA.quiz = { steps: [], finalBonusText: "" };
+                    if (!Array.isArray(DATA.quiz.steps)) DATA.quiz.steps = [];
+                    const quiz = DATA.quiz;
                     el.innerHTML = `<h2 class="admin-section__title">Квиз</h2><p class="admin-section__helper">Подбор лечения</p>
-<div class="card">${fieldHTML("Текст финала", "quiz.finalBonusText", quiz.finalBonusText, "textarea")}</div>
+<div class="card">${fieldHTML("Текст финала", "quiz.finalBonusText", quiz.finalBonusText || "", "textarea")}</div>
 <div class="card">${quiz.steps.map((s, i, a) => `<div class="array-item">${arrItemHeader("Шаг", i, a.length)}${fieldHTML("Вопрос", `quiz.steps.${i}.question`, s.question)}${fieldHTML("Варианты (каждый с новой строки)", `quiz.steps.${i}.options`, Array.isArray(s.options) ? s.options.join("\n") : "", "textarea")}</div>`).join("")}<button class="array-add" onclick="window._addStep()">+ Добавить шаг</button></div>`;
                     initArrayActions(el, "quiz.steps", draw); listenChanges(el);
                 }
-                window._addStep = () => { if (!DATA.quiz) DATA.quiz = { steps: [], finalBonusText: "" }; DATA.quiz.steps.push({ question: "", options: [""] }); markDirty(); draw() };
+                window._addStep = () => { if (!DATA.quiz) DATA.quiz = { steps: [], finalBonusText: "" }; if (!Array.isArray(DATA.quiz.steps)) DATA.quiz.steps = []; DATA.quiz.steps.push({ question: "", options: [""] }); markDirty(); draw() };
                 draw();
             }
 
